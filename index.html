@@ -212,7 +212,6 @@
 
   <!-- ============ GAME SWITCHER ============ -->
   <nav id="nav">
-    <button class="tab" data-nav="3q" onclick="goGame('3q')"><span class="ico">🎀</span>SWELNI</button>
     <button class="tab" data-nav="online" onclick="goGame('online')"><span class="ico">🌐</span>Play Online</button>
     <button class="tab" data-nav="nhie" onclick="goGame('nhie')"><span class="ico">🍷</span>Never Have</button>
   </nav>
@@ -340,7 +339,7 @@
       <input type="text" id="nhie-code" maxlength="4" placeholder="CODE" style="text-transform:uppercase;width:120px;text-align:center;letter-spacing:6px;font-family:'Press Start 2P';font-size:14px;">
       <button class="btn ghost" onclick="nhieJoinRoom()">Join</button>
     </div>
-    <button class="btn ghost small" style="margin-top:16px;" onclick="goGame('3q')">← back</button>
+    <button class="btn ghost small" style="margin-top:16px;" onclick="show('s-choose')">← back</button>
   </div>
 
   <!-- ============ NEVER HAVE I EVER: PLAY ============ -->
@@ -392,20 +391,20 @@
 
   <!-- ============ SCREEN 2: CHOOSE CHARACTER ============ -->
   <div id="s-choose" class="screen">
-    <p class="subtitle">Who's answering first?</p>
+    <p class="subtitle">Pick your game ✨</p>
     <div class="characters">
-      <div class="char blue" data-who="boy" onclick="pick('boy')">
-        <img class="char-pic" src="boy.png" alt="Mohamed">
-        <div class="name">MOHAMED</div>
-        <div class="role">the one answering</div>
+      <div class="char blue" data-who="online" onclick="goGame('online')">
+        <img class="char-pic" src="boy.png" alt="Play Online">
+        <div class="name">PLAY ONLINE</div>
+        <div class="role">two phones, one code</div>
       </div>
-      <div class="char" data-who="girl" onclick="pick('girl')">
-        <img class="char-pic" src="girl.png" alt="Oumaima">
-        <div class="name">OUMAIMA</div>
-        <div class="role">the one answering</div>
+      <div class="char" data-who="nhie" onclick="goGame('nhie')">
+        <img class="char-pic" src="girl.png" alt="Never Have">
+        <div class="name">NEVER HAVE</div>
+        <div class="role">same prompt, both answer</div>
       </div>
     </div>
-    <button class="btn" onclick="goSetup()">Continue</button>
+    <button class="btn" onclick="mpOpenLobby()">🌐 Play online</button>
   </div>
 
   <!-- ============ SCREEN 3: CATEGORY ============ -->
@@ -625,7 +624,7 @@ function openBag(){
   const g=document.getElementById('hf-gif');
   if(g) g.style.display='block';
 }
-function startGame(){ pick('boy'); show('s-choose'); }
+function startGame(){ show('s-choose'); }
 
 /* ---------- CHOOSE ---------- */
 function pick(w){

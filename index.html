@@ -962,9 +962,11 @@ async function mpPass(){
   const nextAnswerPhase = (MP.seat==='A') ? 'answerB' : 'answerA';
   const nextSetupTurn  = (MP.seat==='A') ? 'B' : 'A';
   MP.noop = true;
+  const deckQ = MP.secQ.slice(0,2).concat(MP.secret);
+  for(let i=deckQ.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [deckQ[i],deckQ[j]]=[deckQ[j],deckQ[i]]; }
   await MP.myRef.child('deck').set({
     cat: MP.cat,
-    q: MP.secQ.slice(0,2).concat(MP.secret),
+    q: deckQ,
     qIndex: 0
   });
   // mark the 2 asked questions as used (shared by both players)

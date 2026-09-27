@@ -779,6 +779,20 @@ MP.secret = '';
 MP.qIndex = 0;
 MP.noop = false;         // suppress echo handler while writing own state
 
+/* ---------- SESSION PERSISTENCE (survive tab reload / app switch) ---------- */
+const SS_KEY = 'swelni_session';
+function saveSession(game, code, seat, name){
+  try{
+    localStorage.setItem(SS_KEY, JSON.stringify({
+      g: game, code: code, seat: seat, name: name,
+      which: (game==='nhie' ? NH.which : MP.which),
+      ts: Date.now()
+    }));
+  }catch(e){}
+}
+function loadSession(){ try{ return JSON.parse(localStorage.getItem(SS_KEY)||'null'); }catch(e){ return null; } }
+function clearSession(){ try{ localStorage.removeItem(SS_KEY); }catch(e){} }
+
 const MP_URL_RE = /^https:\/\/.+\.firebaseio\.com$/;
 
 function mpReady(){
@@ -881,15 +895,14 @@ function mpEnterRoom(code, seat, name){
   // mark connected
   MP.myRef.child('players/'+seat+'/connected').set(true);
   MP.myRef.child('players/'+seat+'/name').set(name);
-  // on disconnect cleanup
-  if(navigator.onLine){
-    window.addEventListener('beforeunload', ()=> MP.myRef.child('players/'+seat).remove());
-  }
+  // remember this room in localStorage so a tab reload / app switch returns us here
+  // (player data intentionally stays in the room when the tab closes)
+  saveSession('mp', code, seat, name);
   $('mp-room-jumbo').textContent = 'ROOM ' + code;
   $('mp-who').textContent = seat + ' · ' + name;
   MP.myRef.on('value', snap => {
     const v = snap.val();
-    if(!v) { show('s-mp-lobby'); return; }
+    if(!v) { clearSession(); show('s-mp-lobby'); return; }
     MP.rm = v;
     mpRender(v);
   });
@@ -1050,10 +1063,9 @@ async function mpNewRound(){
 }
 function mpLeave(){
   if(MP.myRef && MP.seat) MP.myRef.child('players/'+MP.seat).remove();
-  if(MP.seat && MP.rm && (!MP.rm.players.A || !MP.rm.players.B)){
-    // empty room cleanup
-  }
   MP.myRef && MP.myRef.off('value');
+  clearSession(); // explicit leave -> don't auto-rejoin on next load
+  MP.seat = null; MP.room = null; MP.myRef = null;
   show('s-mp-lobby');
 }
 
@@ -1175,14 +1187,13 @@ function nhieEnterRoom(code, seat, name){
   NH.myRef = rdb.ref('nhie/'+code);
   NH.myRef.child('players/'+seat+'/name').set(name);
   NH.myRef.child('players/'+seat+'/connected').set(true);
-  if(navigator.onLine){
-    window.addEventListener('beforeunload', ()=> NH.myRef.child('players/'+seat).remove());
-  }
+  // remember this room in localStorage so a tab reload / app switch returns us here
+  saveSession('nhie', code, seat, name);
   $('nhie-room-jumbo').textContent = 'ROOM ' + code;
   $('nhie-who').textContent = seat + ' · ' + name;
   NH.myRef.on('value', snap => {
     const v = snap.val();
-    if(!v){ alert('Room closed.'); show('s-nhie-lobby'); return; }
+    if(!v){ clearSession(); alert('Room closed.'); show('s-nhie-lobby'); return; }
     NH.rm = v;
     nhieRender(v);
   });
@@ -1306,12 +1317,42 @@ async function nhieNext(){
 function nhieLeave(){
   if(NH.myRef && NH.seat) NH.myRef.child('players/'+NH.seat).remove();
   NH.myRef && NH.myRef.off('value');
+  clearSession(); // explicit leave -> don't auto-rejoin on next load
+  NH.seat = null; NH.room = null; NH.myRef = null;
   show('s-nhie-lobby');
   setNav('nhie');
 }
 
 /* ============ INIT: highlight SWELNI tab ============ */
 setNav('3q');
+
+/* ============ AUTO-REJOIN: return to saved room after reload / app switch ============ */
+(async function restoreSession(){
+  const s = loadSession();
+  if(!s || !s.code || !s.seat || !s.g) return;
+  if(!mpReady()) return;              // online not configured -> leave user on home
+  MP.init();
+  try{
+    const rdb = firebase.database();
+    const base = (s.g==='nhie') ? 'nhie/' : 'rooms/';
+    const snap = await rdb.ref(base + s.code).once('value');
+    const room = snap.val();
+    if(!room){ clearSession(); return; }   // room gone -> start fresh, no error popup
+    // restore identity so create/join checks still work after rejoin
+    if(s.g==='nhie'){
+      NH.which = s.which || null;
+      NH.name = s.name || '';
+      nhieEnterRoom(s.code, s.seat, s.name);
+    } else {
+      MP.which = s.which || null;
+      MP.name = s.name || '';
+      mpEnterRoom(s.code, s.seat, s.name);
+    }
+  }catch(e){
+    console.error('Session restore failed:', e); // stay on home screen, don't block the app
+  }
+})();
+
 </script>
 </body>
 </html>

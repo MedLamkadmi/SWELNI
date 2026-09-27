@@ -159,6 +159,9 @@
 
   input[type=text]{width:100%;padding:14px;border:2px solid #e8cfc0;border-radius:14px;font-size:16px;background:#fff;color:var(--ink);outline:none;font-family:'Pixelify Sans',sans-serif;font-weight:600;box-shadow:inset 0 2px 6px rgba(92,60,42,.06);}
   input[type=text]:focus{border-color:var(--pink-dark);box-shadow:0 0 0 3px rgba(231,122,151,.18);}
+  textarea{width:100%;padding:14px;border:2px solid #e8cfc0;border-radius:14px;font-size:16px;background:#fff;color:var(--ink);outline:none;font-family:'Pixelify Sans',sans-serif;font-weight:600;box-shadow:inset 0 2px 6px rgba(92,60,42,.06);resize:vertical;min-height:84px;line-height:1.45;margin-top:12px;display:block;}
+  textarea:focus{border-color:var(--pink-dark);box-shadow:0 0 0 3px rgba(231,122,151,.18);}
+  .ans-view{background:var(--pink-soft);border:2px solid #f3b8c8;border-radius:14px;padding:12px;font-size:15px;line-height:1.5;font-weight:600;white-space:pre-wrap;word-break:break-word;}
 
   .qitem{background:var(--pink-soft);border:2px solid #f3b8c8;border-radius:16px;padding:14px;margin:10px 0;font-size:16px;line-height:1.5;font-weight:600;}
   .qitem .num{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--pink-dark);margin-right:8px;}
@@ -299,8 +302,15 @@
       <div class="card" style="min-height:170px;display:flex;flex-direction:column;justify-content:center;">
         <p class="label" id="mp-qlabel">Question 1 of 3</p>
         <p id="mp-qcard" style="font-size:17px;"></p>
+        <textarea id="mp-ans" rows="3" placeholder="Type your answer here..."></textarea>
         <button class="btn" id="mp-nextbtn" style="margin-top:18px;" onclick="mpNext()">Next →</button>
       </div>
+    </div>
+
+    <!-- asker reviews the partner's answers -->
+    <div id="mp-review" style="display:none;">
+      <div id="mp-review-list"></div>
+      <button class="btn" style="margin-top:12px;" onclick="mpReviewContinue()">Continue ▶</button>
     </div>
 
     <!-- done -->
@@ -926,6 +936,7 @@ function mpRender(room){
   const ph = room.phase;
   const meSetup = (ph==='setupA' && MP.seat==='A') || (ph==='setupB' && MP.seat==='B');
   const meAnswer = (ph==='answerB' && MP.seat==='B') || (ph==='answerA' && MP.seat==='A');
+  const meReview = (ph==='reviewA' && MP.seat==='A') || (ph==='reviewB' && MP.seat==='B');
 
   $('mp-who').textContent = MP.seat + ' · ' + me;
   $('mp-room-jumbo').textContent = 'ROOM ' + MP.room;
@@ -939,22 +950,29 @@ function mpRender(room){
     mpRenderChips(); mpRenderPicked();
   } else if(meAnswer){
     mpShow('mp-answer');
-    $('mp-status').textContent = 'Answering ' + otherName + "'s questions — read them aloud.";
+    $('mp-status').textContent = 'Answering ' + otherName + "'s questions — type your answer, then Next.'";
     mpInitAnswer(room);
+  } else if(meReview){
+    mpShow('mp-review');
+    $('mp-status').textContent = otherName + "'s answers to your questions — here's what they said:";
+    mpRenderReview(room);
   } else {
-    // opponent is setting up or answering
+    // opponent is setting up, answering, or reading my answers
     const oppSelf = ph==='setupA' || ph==='setupB';
+    const oppReview = ph==='reviewA' || ph==='reviewB';
     $('mp-status').textContent = oppSelf
       ? otherName + ' is preparing questions…'
-      : otherName + ' is answering…';
+      : oppReview
+        ? otherName + ' is reading your answers…'
+        : otherName + ' is answering…';
     mpHideAll();
   }
 }
 
 function mpHideAll(){
-  ['mp-setup','mp-answer','mp-done'].forEach(id=>$(id).style.display='none');
+  ['mp-setup','mp-answer','mp-review','mp-done'].forEach(id=>$(id).style.display='none');
 }
-function mpShow(id){ ['mp-setup','mp-answer','mp-done'].forEach(x=>$(x).style.display = x===id?'block':'none'); }
+function mpShow(id){ ['mp-setup','mp-answer','mp-review','mp-done'].forEach(x=>$(x).style.display = x===id?'block':'none'); }
 
 /* ---------- SETUP (asker) ---------- */
 function mpRenderChips(){
@@ -1004,7 +1022,8 @@ async function mpPass(){
   await MP.myRef.child('deck').set({
     cat: MP.cat,
     q: deckQ,
-    qIndex: 0
+    qIndex: 0,
+    answers: {}
   });
   // mark the 2 asked questions as used (shared by both players)
   const prev = new Set((MP.rm && MP.rm.used) || []);
@@ -1025,33 +1044,94 @@ function mpInitAnswer(room){
   if(MP.qIndex>qs.length) MP.qIndex=qs.length;
   $('mp-qlabel').textContent = 'Question ' + (MP.qIndex+1) + ' of ' + qs.length;
   $('mp-qcard').textContent = qs[MP.qIndex] || '';
-  $('mp-nextbtn').textContent = MP.qIndex < qs.length-1 ? 'Next →' : 'Finish';
+  $('mp-nextbtn').textContent = MP.qIndex < qs.length-1 ? 'Next →' : 'Send answers ✓';
+  // prefill my saved answer for this question (reload-safe) — only when the index
+  // changes, so an unrelated room update never wipes what I'm typing right now
+  const savedAns = (deck.answers && deck.answers[MP.qIndex]) ? String(deck.answers[MP.qIndex]) : '';
+  if(MP._ansIdx !== MP.qIndex){
+    $('mp-ans').value = savedAns;
+    MP._ansIdx = MP.qIndex;
+  } else if(!$('mp-ans').value && savedAns){
+    $('mp-ans').value = savedAns;
+  }
   // progress dots
   const dots = [];
   for(let i=0;i<qs.length;i++) dots.push(`<div class="dot-p ${i===MP.qIndex?'active':''}"></div>`);
   $('mp-dots').innerHTML = dots.join('');
 }
 async function mpNext(){
-  if(!MP.rm || !MP.rm.deck) return;
-  const qs = (MP.rm.deck.q || []).length || 3;
-  MP.qIndex++;
-  if(MP.qIndex>=qs){
-    // this half-round done -> next setup phase
-    const mySeat = MP.seat;
-    const setupBy = mySeat;      // now MY turn to be asker
-    const setupPhase = (mySeat==='B') ? 'setupB' : 'setupA';
+  if(!MP.rm || !MP.rm.deck || MP.ansBusy) return;   // ansBusy: ignore double-taps
+  MP.ansBusy = true;
+  try{
+    const qs = (MP.rm.deck.q || []).length || 3;
+    // save my answer for the current question before moving on
+    const txt = ($('mp-ans').value || '').trim();
     MP.noop = true;
-    await MP.myRef.update({ phase: setupPhase, turn: MP.seat });
-    // clear own picked pool for next setup
-    MP.secQ=[]; MP.secret='';
-    $('mp-secret').value='';
+    await MP.myRef.child('deck/answers/' + MP.qIndex).set(txt);
     MP.noop = false;
-    $('mp-status').textContent = 'Your turn to ask — pick questions.';
-  } else {
-    MP.noop = true;
-    await MP.myRef.child('deck/qIndex').set(MP.qIndex);
-    MP.noop = false;
+    MP.qIndex++;
+    if(MP.qIndex>=qs){
+      // I answered everything -> the ASKER gets to read my answers
+      const mySeat = MP.seat;
+      const reviewPhase = (mySeat==='B') ? 'reviewA' : 'reviewB';
+      MP.noop = true;
+      await MP.myRef.update({ phase: reviewPhase, turn: (mySeat==='B' ? 'A' : 'B') });
+      MP.noop = false;
+      $('mp-status').textContent = 'Answers sent! Your partner can now read them. 💕';
+      mpHideAll();
+    } else {
+      MP.noop = true;
+      await MP.myRef.child('deck/qIndex').set(MP.qIndex);
+      MP.noop = false;
+      $('mp-ans').value = '';
+    }
+  }catch(e){
+    console.error('Saving answer failed:', e);
+    alert("Couldn't save your answer — check your connection and try again.");
+  }finally{
+    MP.ansBusy = false;
   }
+}
+
+/* ---------- REVIEW (asker reads the partner's answers) ---------- */
+function mpRenderReview(room){
+  const deck = room.deck || {};
+  const qs = (deck.q && deck.q.length) ? deck.q : [];
+  const ans = deck.answers || {};
+  const list = $('mp-review-list');
+  list.innerHTML = '';
+  qs.forEach((q,i)=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginTop = '10px';
+    const lbl = document.createElement('p');
+    lbl.className = 'label';
+    lbl.textContent = 'Q' + (i+1);
+    const qt = document.createElement('p');
+    qt.style.cssText = 'font-size:16px;font-weight:700;line-height:1.45;';
+    qt.textContent = q;
+    const ansLbl = document.createElement('p');
+    ansLbl.className = 'label';
+    ansLbl.style.cssText = 'text-align:left;margin-top:10px;';
+    ansLbl.textContent = (i===qs.length-1 ? 'Answer (secret question)' : 'Answer');
+    const av = document.createElement('div');
+    av.className = 'ans-view';
+    const raw = (ans[i]!==undefined && ans[i]!==null) ? String(ans[i]).trim() : '';
+    av.textContent = raw || '(no answer)';
+    card.appendChild(lbl); card.appendChild(qt); card.appendChild(ansLbl); card.appendChild(av);
+    list.appendChild(card);
+  });
+}
+async function mpReviewContinue(){
+  if(!MP.myRef || !MP.seat) return;
+  // reviewer's opponent (the one who just answered) becomes the next asker
+  const nextSetup = (MP.seat==='A') ? 'setupB' : 'setupA';
+  const nextTurn  = (MP.seat==='A') ? 'B' : 'A';
+  MP.noop = true;
+  await MP.myRef.update({ phase: nextSetup, turn: nextTurn });
+  MP.noop = false;
+  MP.secQ=[]; MP.secret=''; $('mp-secret').value='';
+  $('mp-status').textContent = 'Your turn to ask — pick questions.';
 }
 
 /* ---------- DONE / NEW ROUND ---------- */

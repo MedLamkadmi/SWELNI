@@ -804,20 +804,35 @@ function mpOpenLobby(){
   show('s-mp-lobby');
 }
 
-function mpGenCode(){ return (Math.random().toString(36).slice(2,6)).toUpperCase(); }
+function mpGenCode(){
+  // 4 chars, guaranteed length, unambiguous alphabet (no 0/O/1/I) so codes are easy to read aloud
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const rnd = new Uint32Array(4);
+  (window.crypto || window.msCrypto).getRandomValues(rnd);
+  let s = '';
+  for (let i = 0; i < 4; i++) s += abc[rnd[i] % abc.length];
+  return s;
+}
 
 /* ---------- CREATE / JOIN ---------- */
 async function mpCreateRoom(){
   const name = cleanupName();
   if(!MP.which) return alert('Choose who you are first — Mohamed or Oumaima.');
-  const code = mpGenCode();
   MP.init();
   const rdb = firebase.database();
-  const ref = rdb.ref('rooms/'+code);
-  const snap = await ref.child('created').once('value');
-  if(snap.val()){ return mpCreateRoom(); } // collision -> retry
-  await ref.set({ created: Date.now(), turn:'A', phase:'setupA', players:{ A:{name}, B:null }, deck:{} });
-  mpEnterRoom(code, 'A', name);
+  try{
+    let code = mpGenCode();
+    for(let i = 0; i < 50; i++){ // collision -> regenerate (bounded, no unbounded recursion)
+      const snap = await rdb.ref('rooms/'+code).child('created').once('value');
+      if(!snap.val()) break;
+      code = mpGenCode();
+    }
+    await rdb.ref('rooms/'+code).set({ created: Date.now(), turn:'A', phase:'setupA', players:{ A:{name}, B:null }, deck:{} });
+    mpEnterRoom(code, 'A', name);
+  }catch(e){
+    console.error('Create room failed:', e);
+    alert("Couldn't create a room — check your internet connection and try again.");
+  }
 }
 
 async function mpJoinRoom(){
@@ -827,13 +842,22 @@ async function mpJoinRoom(){
   if(code.length!==4) return alert('Enter the 4-letter code.');
   MP.init();
   const rdb = firebase.database();
-  const ref = rdb.ref('rooms/'+code);
-  const snap = await ref.once('value');
-  const room = snap.val();
-  if(!room) return alert('No room found with that code.');
-  if(room.players.B) return alert('That room is already full.');
-  await ref.child('players/B').set({ name });
-  mpEnterRoom(code, 'B', name);
+  try{
+    const snap = await rdb.ref('rooms/'+code).once('value');
+    const room = snap.val();
+    if(!room){
+      // maybe the code belongs to the OTHER game — say so instead of a dead end
+      const alt = await rdb.ref('nhie/'+code).once('value');
+      if(alt.val()) return alert('That code belongs to NEVER HAVE I EVER 🍿 — go back and join from the Never Have I Ever screen instead.');
+      return alert('No room found with that code. Check the ROOM code on your partner\'s phone (no O/0 or I/1 confusion) and try again.');
+    }
+    if(room.players && room.players.B) return alert('That room is already full.');
+    await rdb.ref('rooms/'+code).child('players/B').set({ name });
+    mpEnterRoom(code, 'B', name);
+  }catch(e){
+    console.error('Join room failed:', e);
+    alert("Couldn't join the room — check your internet connection and try again.");
+  }
 }
 
 function mpPick(w){
@@ -1092,24 +1116,31 @@ function nhieCleanupName(){
 async function nhieCreateRoom(){
   const name = nhieCleanupName();
   if(!NH.which) return alert('Choose who you are first — Mohamed or Oumaima.');
-  const code = mpGenCode();
   MP.init();
   const rdb = firebase.database();
-  const ref = rdb.ref('nhie/'+code);
-  const snap = await ref.child('created').once('value');
-  if(snap.val()){ return nhieCreateRoom(); }
-  const deck = nhieFreshDeck([]);
-  await ref.set({
-    created: Date.now(),
-    players:{ A:{name}, B:null },
-    qIndex:0,
-    deck,
-    q: deck[0],
-    used:[],
-    answers:{},
-    nextClicker:null
-  });
-  nhieEnterRoom(code,'A',name);
+  try{
+    let code = mpGenCode();
+    for(let i = 0; i < 50; i++){ // collision -> regenerate (bounded, no unbounded recursion)
+      const snap = await rdb.ref('nhie/'+code).child('created').once('value');
+      if(!snap.val()) break;
+      code = mpGenCode();
+    }
+    const deck = nhieFreshDeck([]);
+    await rdb.ref('nhie/'+code).set({
+      created: Date.now(),
+      players:{ A:{name}, B:null },
+      qIndex:0,
+      deck,
+      q: deck[0],
+      used:[],
+      answers:{},
+      nextClicker:null
+    });
+    nhieEnterRoom(code,'A',name);
+  }catch(e){
+    console.error('Create room failed:', e);
+    alert("Couldn't create a room — check your internet connection and try again.");
+  }
 }
 
 async function nhieJoinRoom(){
@@ -1119,13 +1150,22 @@ async function nhieJoinRoom(){
   if(code.length!==4) return alert('Enter the 4-letter code.');
   MP.init();
   const rdb = firebase.database();
-  const ref = rdb.ref('nhie/'+code);
-  const snap = await ref.once('value');
-  const room = snap.val();
-  if(!room) return alert('No room found with that code.');
-  if(room.players.B) return alert('That room is already full.');
-  await ref.child('players/B').set({ name });
-  nhieEnterRoom(code,'B',name);
+  try{
+    const snap = await rdb.ref('nhie/'+code).once('value');
+    const room = snap.val();
+    if(!room){
+      // maybe the code belongs to the OTHER game — say so instead of a dead end
+      const alt = await rdb.ref('rooms/'+code).once('value');
+      if(alt.val()) return alert('That code belongs to PLAY ONLINE ★ — go back and join from the Play Online screen instead.');
+      return alert('No room found with that code. Check the ROOM code on your partner\'s phone (no O/0 or I/1 confusion) and try again.');
+    }
+    if(room.players && room.players.B) return alert('That room is already full.');
+    await rdb.ref('nhie/'+code).child('players/B').set({ name });
+    nhieEnterRoom(code,'B',name);
+  }catch(e){
+    console.error('Join room failed:', e);
+    alert("Couldn't join the room — check your internet connection and try again.");
+  }
 }
 
 function nhieEnterRoom(code, seat, name){
